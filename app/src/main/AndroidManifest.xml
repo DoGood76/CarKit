@@ -2,15 +2,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools" >
 
-
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- You might also need BLUETOOTH_SCAN if you're discovering devices -->
-     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <!-- And BLUETOOTH_ADVERTISE if your app makes itself discoverable -->
-     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- Required for foreground services on Android 13 (API 33) if targeting SDK 33+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Required for foreground service -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <!-- You might also need BLUETOOTH_SCAN if you're discovering devices -->
+    <!-- And BLUETOOTH_ADVERTISE if your app makes itself discoverable -->
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -22,7 +27,7 @@
         android:theme="@style/Theme.HandsFreeProfile"
         tools:targetApi="31" >
         <service
-            android:name=".HfpAgentService"
+            android:name=".service.HfpAgentService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="connectedDevice">
