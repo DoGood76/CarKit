@@ -148,7 +148,7 @@ public class HfpStateRepository {
     public void reportBluetoothEnabled(boolean isEnabled) {
         if (_isBluetoothEnabled.getValue() == null || _isBluetoothEnabled.getValue() != isEnabled) {
             Log.i(TAG, "Reporting Bluetooth Enabled: " + isEnabled);
-            _isBluetoothEnabled.postValue(isEnabled);
+            _isBluetoothEnabled.setValue(isEnabled);
             if (!isEnabled) {
                 // If Bluetooth is turned off, update relevant states
                 updateUiState(CarKitUiState.BLUETOOTH_OFF);
@@ -170,7 +170,7 @@ public class HfpStateRepository {
     public void reportBluetoothPermissionsGranted(boolean granted) {
         if (_hasBluetoothPermissions.getValue() == null || _hasBluetoothPermissions.getValue() != granted) {
             Log.i(TAG, "Reporting Bluetooth Permissions Granted: " + granted);
-            _hasBluetoothPermissions.postValue(granted);
+            _hasBluetoothPermissions.setValue(granted);
             if (!granted) {
                 updateUiState(CarKitUiState.NO_BLUETOOTH_PERMISSION);
                 clearConnectedDevice();

@@ -6,7 +6,6 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Binder;
@@ -30,6 +29,36 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+
+/**
+ * HfpAgentService is a foreground service that manages Bluetooth Hands-Free Profile (HFP)
+ * connections. It acts as a Hands-Free (HF) unit, allowing a connected Audio Gateway (AG),
+ * typically a mobile phone, to route audio and control calls through this service.
+ *
+ * <p>Key responsibilities include:
+ * <ul>
+ *   <li>Initializing Bluetooth and checking for necessary permissions.</li>
+ *   <li>Starting a Bluetooth server socket to listen for incoming HFP connections from AG devices.</li>
+ *   <li>Managing the lifecycle of a single HFP connection at a time using {@link AcceptThread} for listening and {@link ConnectedClientThread} for an active connection.</li>
+ *   <li>Processing AT commands received from the connected AG via {@link AtCommandProcessor}.</li>
+ *   <li>Sending AT commands to the AG to control call states (e.g., answer, hang up) and manage volume.</li>
+ *   <li>Maintaining and updating the HFP connection state (e.g., listening, connecting, connected, in-call) in {@link HfpStateRepository}.</li>
+ *   <li>Displaying a persistent notification to indicate the service's status and current HFP state.</li>
+ *   <li>Responding to changes in Bluetooth adapter state (e.g., enabled/disabled) and ACL connection events via {@link BluetoothStateReceiver} and {@link BluetoothAclReceiver}.</li>
+ *   <li>Providing an interface for UI components (e.g., an Activity) to bind to the service and interact with it (e.g., initiate call actions, request state updates) via {@link LocalBinder}.</li>
+ * </ul>
+ *
+ * <p>The service uses an {@link ExecutorService} to manage background threads for Bluetooth communication.
+ * It ensures that only one HFP connection is active at a time. If a new connection request is received while an
+ * existing one is active, the old connection is dropped to establish the new one.
+ *
+ * <p>The service also handles cleanup of resources and threads upon being destroyed or when connections are closed.
+ * It interacts with {@link NotificationHelper} to manage the foreground service notification.
+ *
+ * <p>Permissions Required:
+ * <ul>
+ *   <li>{@link Manifest.permission#BLUETOOTH_CONNECT} (for Android S and above) for establishing connections.</li>
+ */
 public class HfpAgentService extends Service implements AcceptThread.AcceptThreadCallback, ConnectedClientThread.ConnectedClientCallback {
 
     private static final String TAG = "HfpAgentService";
@@ -90,10 +119,9 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         executorService = Executors.newCachedThreadPool();
 
         bluetoothStateReceiver = new BluetoothStateReceiver(hfpStateRepository, notificationHelper, this);
-        bluetoothAclReceiver = new BluetoothAclReceiver();
-
-
         bluetoothStateReceiver.registerReceiver(this);
+
+        bluetoothAclReceiver = new BluetoothAclReceiver();
         bluetoothAclReceiver.registerReceiver(this);
 
         atCommandProcessor = new AtCommandProcessor(hfpStateRepository, notificationHelper, this);
@@ -101,18 +129,26 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         if (bluetoothAdapter == null) {
             Log.e(TAG, "Bluetooth not supported on this device.");
             hfpStateRepository.reportServiceError("Bluetooth not supported on this device.");
+            // Ensure repository reflects BT not enabled if adapter is null
             hfpStateRepository.reportBluetoothEnabled(false);
             hfpStateRepository.reportBluetoothPermissionsGranted(false);
+            updateInitialState(false, BluetoothUtils.hasRequiredPermissions(this)); // Pass current states
             stopSelf();
             return;
         }
 
-        boolean btEnabled = bluetoothAdapter.isEnabled();
-        hfpStateRepository.reportBluetoothEnabled(btEnabled);
+        // --- Get ACTUAL current states directly ---
+        boolean currentBtEnabled = bluetoothAdapter.isEnabled();
+        boolean currentPermsGranted = BluetoothUtils.hasRequiredPermissions(this);
 
-        boolean permsGranted = BluetoothUtils.hasRequiredPermissions(this);
+        // --- Update repository with these ACTUAL current states ---
+        hfpStateRepository.reportBluetoothEnabled(currentBtEnabled);
+        hfpStateRepository.reportBluetoothPermissionsGranted(currentPermsGranted);
 
-        if (btEnabled && permsGranted) {
+        // --- Now make decisions based on these ACTUAL current states ---
+        updateInitialState(currentBtEnabled, currentPermsGranted);
+
+        if (currentBtEnabled && currentPermsGranted) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                 Set<BluetoothDevice> bondedDevices = bluetoothAdapter.getBondedDevices();
                 for (BluetoothDevice device : bondedDevices) {
@@ -123,18 +159,33 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
                 }
             }
         }
-        updateInitialState();
         Log.i(TAG, "HfpAgentService created. Initial state: " + hfpStateRepository.getCurrentUiStateValue());
     }
 
-    private void updateInitialState() {
-        boolean btEnabled = Boolean.TRUE.equals(hfpStateRepository.getIsBluetoothEnabledValue());
-        boolean permsGranted = Boolean.TRUE.equals(hfpStateRepository.getHasBluetoothPermissionsValue());
-
-        if (!btEnabled) {
-            hfpStateRepository.reportBluetoothOff();
-        } else if (!permsGranted) {
-            hfpStateRepository.reportNoBluetoothPermission();
+    /**
+     * Updates the initial state of the HFP service based on the current Bluetooth status and
+     * permission status obtained from {@link HfpStateRepository}.
+     *
+     * <p>This method performs the following actions:
+     * <ul>
+     *   <li>If Bluetooth is reported as disabled in the repository, it calls
+     *       {@link HfpStateRepository#reportBluetoothOff()} to update the UI and notification.</li>
+     *   <li>Else if Bluetooth permissions are reported as not granted in the repository, it calls
+     *       {@link HfpStateRepository#reportNoBluetoothPermission()} to update the UI and notification.</li>
+     *   <li>Otherwise (Bluetooth is enabled and permissions are granted), it sets the UI state to
+     *       {@link CarKitUiState#LOADING} via {@link HfpStateRepository#updateUiState(CarKitUiState)}
+     *       and then calls {@link #startHfpServerListening()} to begin listening for HFP connections.</li>
+     * </ul>
+     * </p>
+     * This method is typically called during service initialization or when a significant change
+     * in Bluetooth state or permissions is detected, requiring a re-evaluation of the service's
+     * operational readiness.
+     */
+    private void updateInitialState(boolean isBluetoothCurrentlyEnabled, boolean arePermissionsCurrentlyGranted) {
+        if (!isBluetoothCurrentlyEnabled) {
+            hfpStateRepository.reportBluetoothOff(); // Updates UI state and notification via repository
+        } else if (!arePermissionsCurrentlyGranted) {
+            hfpStateRepository.reportNoBluetoothPermission(); // Updates UI state and notification
         } else {
             hfpStateRepository.updateUiState(CarKitUiState.LOADING);
             startHfpServerListening();
@@ -150,6 +201,34 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         return START_STICKY;
     }
 
+    /**
+     * Starts the HFP server socket to listen for incoming Bluetooth connections from AG devices.
+     * <p>
+     * This method performs the following checks before attempting to start listening:
+     * <ul>
+     *   <li>Verifies if Bluetooth is enabled using {@link HfpStateRepository}. If not, logs a warning and updates the notification.</li>
+     *   <li>Verifies if the required Bluetooth permissions are granted using {@link HfpStateRepository}. If not, logs a warning and updates the notification.</li>
+     * </ul>
+     * </p>
+     * <p>
+     * If both checks pass, it proceeds to:
+     * <ol>
+     *   <li>Stop any existing listening ({@link AcceptThread}) or connection ({@link ConnectedClientThread}) threads.</li>
+     *   <li>If running on Android S (API 31) or higher, explicitly checks for {@link Manifest.permission#BLUETOOTH_CONNECT}.
+     *       If missing, logs an error, updates the {@link HfpStateRepository} with a permission error, and updates the notification.</li>
+     *   <li>Attempts to create a {@link BluetoothServerSocket} using {@code listenUsingRfcommWithServiceRecord} with the HFP service name and UUID.</li>
+     *   <li>If successful, creates a new {@link AcceptThread} with the server socket and submits it to the {@link ExecutorService} to start listening.</li>
+     *   <li>Updates the UI state in {@link HfpStateRepository} to {@link CarKitUiState#LISTENING_FOR_CONNECTIONS}.</li>
+     *   <li>Updates the persistent notification to indicate that the service is listening.</li>
+     * </ol>
+     * </p>
+     * <p>
+     * If an {@link IOException} occurs during server socket creation (e.g., Bluetooth turned off, port in use),
+     * it logs the error, reports a service error to {@link HfpStateRepository}, and updates the notification.
+     * If a {@link SecurityException} occurs (usually due to missing permissions), it logs the error,
+     * reports a permission issue and a service error to {@link HfpStateRepository}, and updates the notification.
+     * </p>
+     */
     private void startHfpServerListening() {
         if (!Boolean.TRUE.equals(hfpStateRepository.getIsBluetoothEnabledValue())) {
             Log.w(TAG, "Bluetooth is not enabled (checked via repository). Cannot start HFP server.");
@@ -191,6 +270,12 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         }
     }
 
+    /**
+     * Stops and cancels the {@link AcceptThread} (if active) and the {@link ConnectedClientThread}
+     * (if active). This is typically called before starting a new listening cycle or when the
+     * service is being destroyed. It ensures that any existing Bluetooth server socket listening
+     * for connections and any active client connection are properly terminated.
+     */
     private void stopListeningAndConnectionThreads() {
         if (acceptThread != null) {
             acceptThread.cancel();
@@ -313,7 +398,8 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
             hfpStateRepository.reportServiceError("Bluetooth not supported.");
             return;
         }
-        updateInitialState();
+        updateInitialState(bluetoothAdapter.isEnabled(),
+                BluetoothUtils.hasRequiredPermissions(this));
     }
 
     public void commandAnswerCall() {
