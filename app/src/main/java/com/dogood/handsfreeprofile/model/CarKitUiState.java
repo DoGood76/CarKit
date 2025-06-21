@@ -59,5 +59,6 @@ public enum CarKitUiState {
      * This could be due to a user action, a system event, or an unrecoverable error
      * that led to the service stopping itself.
      */
-    SERVICE_STOPPED
+    SERVICE_STOPPED,
+    CALL_IN_COMING;
 }

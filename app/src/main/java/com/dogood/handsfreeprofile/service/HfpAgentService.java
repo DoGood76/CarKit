@@ -47,6 +47,7 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
     private int currentHfpVolume = 8;
     private BluetoothStateReceiver bluetoothStateReceiver;
     private BluetoothAclReceiver bluetoothAclReceiver;
+    private AtCommandProcessor atCommandProcessor;
 
     public class LocalBinder extends Binder {
         public HfpAgentService getService() {
@@ -71,7 +72,7 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
 
         // Now it's safe to call methods on notificationHelper
         try {
-            if (notificationHelper != null) { // Good practice to check, though it should be initialized
+            if (notificationHelper != null) {
                 notificationHelper.updateNotification("Service is starting");
             } else {
                 Log.e(TAG, "NotificationHelper is still null after attempted initialization!");
@@ -95,6 +96,8 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         bluetoothStateReceiver.registerReceiver(this);
         bluetoothAclReceiver.registerReceiver(this);
 
+        atCommandProcessor = new AtCommandProcessor(hfpStateRepository, notificationHelper, this);
+
         if (bluetoothAdapter == null) {
             Log.e(TAG, "Bluetooth not supported on this device.");
             hfpStateRepository.reportServiceError("Bluetooth not supported on this device.");
@@ -110,7 +113,6 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         boolean permsGranted = BluetoothUtils.hasRequiredPermissions(this);
 
         if (btEnabled && permsGranted) {
-            //Fix for the permission check
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                 Set<BluetoothDevice> bondedDevices = bluetoothAdapter.getBondedDevices();
                 for (BluetoothDevice device : bondedDevices) {
@@ -221,6 +223,7 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         hfpStateRepository.setConnectedDevice(deviceName, deviceAddress);
 
         connectedClientThread = new ConnectedClientThread(this, socket, this);
+        atCommandProcessor.setConnectedClientThread(connectedClientThread);
         executorService.submit(connectedClientThread);
     }
 
@@ -238,66 +241,7 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
     @Override
     public void onAtCommandReceived(String command) {
         Log.i(TAG, "AT command received: " + command);
-        processAtCommand(command);
-    }
-
-    private void processAtCommand(String receivedCommand) {
-        if (receivedCommand.startsWith("AT+CLIP=")) {
-            String number = extractClipNumber(receivedCommand);
-            hfpStateRepository.setIncomingCallNumber(number);
-            notificationHelper.updateNotification("Incoming call: " + number);
-            sendAtCommand("OK\r\n");
-        } else if (receivedCommand.equals("ATA")) {
-            if (hfpStateRepository.getCurrentUiStateValue() == CarKitUiState.CALL_INCOMING) {
-                Log.i(TAG, "AG answered call (ATA received). HF should now manage call audio.");
-                hfpStateRepository.updateUiState(CarKitUiState.CALL_IN_PROGRESS);
-                notificationHelper.updateNotification("Call in progress with " + BluetoothUtils.getSafeDeviceName(this, connectedClientThread.mmSocket.getRemoteDevice()));
-                hfpStateRepository.clearIncomingCallNumber();
-                sendAtCommand("OK\r\n");
-            } else {
-                sendAtCommand("ERROR\r\n");
-            }
-        } else if (receivedCommand.equals("AT+CHUP")) {
-            Log.i(TAG, "AG hung up call (AT+CHUP received).");
-            hfpStateRepository.updateUiState(CarKitUiState.PHONE_CONNECTED);
-            notificationHelper.updateNotification("Connected to " + BluetoothUtils.getSafeDeviceName(this, connectedClientThread.mmSocket.getRemoteDevice()));
-            hfpStateRepository.clearIncomingCallNumber();
-            sendAtCommand("OK\r\n");
-        } else if (receivedCommand.startsWith("AT+VGS=")) {
-            try {
-                int level = Integer.parseInt(receivedCommand.substring("AT+VGS=".length()).trim());
-                currentHfpVolume = Math.max(0, Math.min(15, level));
-                Log.d(TAG, "Remote AG set HF speaker volume to: " + currentHfpVolume);
-                sendAtCommand("OK\r\n");
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "Invalid VGS volume: " + receivedCommand);
-                sendAtCommand("ERROR\r\n");
-            }
-        } else {
-            Log.w(TAG, "Unhandled AT command: " + receivedCommand + ". Sending OK as default.");
-            sendAtCommand("OK\r\n");
-        }
-    }
-
-    private void sendAtCommand(String command) {
-        if (connectedClientThread != null) {
-            connectedClientThread.sendAtCommand(command);
-        }
-    }
-
-    private String extractClipNumber(String clipCommand) {
-        try {
-            int firstQuote = clipCommand.indexOf("\"");
-            if (firstQuote != -1) {
-                int secondQuote = clipCommand.indexOf("\"", firstQuote + 1);
-                if (secondQuote != -1) {
-                    return clipCommand.substring(firstQuote + 1, secondQuote);
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error extracting CLIP number from: " + clipCommand, e);
-        }
-        return "Unknown Number";
+        atCommandProcessor.processAtCommand(command);
     }
 
     @Override
@@ -332,6 +276,7 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
                 hfpStateRepository.reportNoBluetoothPermission();
             }
             HfpAgentService.this.connectedClientThread = null;
+            atCommandProcessor.clearConnectedClientThread();
         } else {
             Log.d(TAG, "cleanupConnection called for an old or non-active thread instance for " + deviceIdentifier);
         }
@@ -358,7 +303,9 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         Log.i(TAG, "HfpAgentService destroyed.");
     }
 
-    // --- Public methods callable via Binder from ViewModel/Activity ---
+//    public ConnectedClientThread getConnectedClientThread() {
+//        return connectedClientThread;
+//    }
 
     public void requestStartListening() {
         Log.d(TAG, "requestStartListening called via Binder.");
@@ -390,7 +337,7 @@ public class HfpAgentService extends Service implements AcceptThread.AcceptThrea
         Log.d(TAG, "commandHangupCall called via Binder.");
         if (connectedClientThread != null &&
                 (hfpStateRepository.getCurrentUiStateValue() == CarKitUiState.CALL_IN_PROGRESS ||
-                        hfpStateRepository.getCurrentUiStateValue() == CarKitUiState.CALL_INCOMING)) {
+                        hfpStateRepository.getCurrentUiStateValue() == CarKitUiState.CALL_IN_COMING)) {
             Log.i(TAG, "HF hanging up/rejecting call (sending AT+CHUP).");
             connectedClientThread.sendAtCommand("AT+CHUP\r\n");
             hfpStateRepository.updateUiState(CarKitUiState.PHONE_CONNECTED);
