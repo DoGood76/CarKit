@@ -19,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -68,7 +69,10 @@ class MainActivity : ComponentActivity() {
                 Log.d("BluetoothEnable_Activity", "Bluetooth successfully enabled by user.")
                 // Service's BroadcastReceiver will handle STATE_ON and update repository
             } else {
-                Log.d("BluetoothEnable_Activity", "User did not enable Bluetooth or an error occurred.")
+                Log.d(
+                    "BluetoothEnable_Activity",
+                    "User did not enable Bluetooth or an error occurred."
+                )
                 // Repository's isBluetoothEnabled will remain false or be updated by BroadcastReceiver
             }
         }
@@ -163,8 +167,8 @@ class MainActivity : ComponentActivity() {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             mutableListOf(
                 Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_SCAN // Needed for discovering devices, potentially by service
-                // Manifest.permission.BLUETOOTH_ADVERTISE // Needed if service advertises
+                Manifest.permission.BLUETOOTH_SCAN, // Needed for discovering devices, potentially by service
+                Manifest.permission.BLUETOOTH_ADVERTISE // Needed if service advertises
             ).apply {
                 // Add BLUETOOTH_ADVERTISE only if your service truly acts as a discoverable GATT server
                 // For HFP RFCOMM, listenUsingRfcommWithServiceRecord doesn't strictly need ADVERTISE for the server role.
@@ -175,7 +179,8 @@ class MainActivity : ComponentActivity() {
                 // Android 12 (S) introduced a requirement for POST_NOTIFICATIONS for foreground services
                 // targeting SDK 33+ (TIRAMISU)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    applicationInfo.targetSdkVersion >= Build.VERSION_CODES.TIRAMISU) {
+                    applicationInfo.targetSdkVersion >= Build.VERSION_CODES.TIRAMISU
+                ) {
                     add(Manifest.permission.POST_NOTIFICATIONS)
                 }
 
@@ -194,6 +199,7 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
+
     private fun checkPermissionsAndStartService(bindOnly: Boolean = false) {
         val requiredPermissions = getRequiredBluetoothPermissions()
         val allPermissionsGranted = requiredPermissions.all {
@@ -202,7 +208,7 @@ class MainActivity : ComponentActivity() {
 
         if (allPermissionsGranted) {
             Log.d("MainActivity_Perms", "All Bluetooth permissions already granted.")
-            // Service internally updates HfpStateRepository about permission status via hasRequiredPermissions()
+            // Service internally updates HfpStateRepository about permission status via BluetoothUtils.hasRequiredPermissions(this)
             // which in turn updates carKitViewModel.hasBluetoothPermissions
             // Here, we can directly inform the viewModel, though the service will also do it.
             // carKitViewModel.hfpStateRepository.reportBluetoothPermissionsGranted(true) // Redundant if service does it on start
@@ -247,7 +253,10 @@ class MainActivity : ComponentActivity() {
             // Launch the permission request
             requestMultiplePermissionsLauncher.launch(permissionsToRequest)
         } else {
-            Log.d("PermissionRequest_Activity", "All necessary permissions already granted (requestBluetoothPermissions).")
+            Log.d(
+                "PermissionRequest_Activity",
+                "All necessary permissions already granted (requestBluetoothPermissions)."
+            )
             // This case should ideally be caught by checkPermissionsAndStartService,
             // but as a fallback, ensure service starts/binds if all good.
             if (isBluetoothAdapterEnabled()) {
@@ -279,11 +288,18 @@ class MainActivity : ComponentActivity() {
         if (!bluetoothAdapter.isEnabled) {
             // Check for BLUETOOTH_CONNECT permission before attempting to enable Bluetooth on S+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                if (ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.BLUETOOTH_CONNECT
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
                     val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
                     requestBluetoothEnableLauncher.launch(enableBtIntent)
                 } else {
-                    Log.w("BluetoothEnable_Activity", "BLUETOOTH_CONNECT permission needed to request enabling Bluetooth.")
+                    Log.w(
+                        "BluetoothEnable_Activity",
+                        "BLUETOOTH_CONNECT permission needed to request enabling Bluetooth."
+                    )
                     // Request the permission first, then the user can try enabling Bluetooth again.
                     requestBluetoothPermissions()
                 }
@@ -300,7 +316,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startHfpServiceInternal() {
-        if (!isBluetoothAdapterEnabled()){
+        if (!isBluetoothAdapterEnabled()) {
             Log.w("HfpService_Activity", "Bluetooth not enabled. Cannot start service yet.")
             // UI should reflect this via isBluetoothEnabled LiveData.
             // User will be prompted to enable Bluetooth if they try an action that needs it.
@@ -314,7 +330,10 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
         if (!allPermissionsGranted) {
-            Log.w("HfpService_Activity", "Required permissions not granted. Cannot start service yet.")
+            Log.w(
+                "HfpService_Activity",
+                "Required permissions not granted. Cannot start service yet."
+            )
             requestBluetoothPermissions()
             return
         }
@@ -343,7 +362,7 @@ class MainActivity : ComponentActivity() {
             Log.d("MainActivity_Service", "Attempting to bind to HfpAgentService.")
             val serviceIntent = Intent(this, HfpAgentService::class.java)
             // BIND_AUTO_CREATE will also start the service if it's not already running
-            // and hasRequiredPermissions() in service onCreate will report to ViewModel
+            // and BluetoothUtils.hasRequiredPermissions(this) in service onCreate will report to ViewModel
             val success = bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
             if (!success) {
                 Log.e("MainActivity_Service", "Failed to bind to HfpAgentService.")
@@ -408,6 +427,7 @@ fun CarKitStatusScreen(
         CarKitUiState.PHONE_CONNECTED,
         CarKitUiState.CALL_INCOMING,
         CarKitUiState.CALL_IN_PROGRESS -> true
+
         else -> false
     }
 
@@ -427,22 +447,27 @@ fun CarKitStatusScreen(
                 btIcon = Icons.Filled.BluetoothDisabled
                 btStatusText = "Bluetooth is Disabled"
             }
+
             !hasBluetoothPermissions -> {
                 btIcon = Icons.Filled.Warning // Or a specific permission icon
                 btStatusText = "Bluetooth Permissions Needed"
             }
+
             uiState == CarKitUiState.PHONE_CONNECTED || uiState == CarKitUiState.CALL_INCOMING || uiState == CarKitUiState.CALL_IN_PROGRESS -> {
                 btIcon = Icons.Filled.BluetoothConnected
                 btStatusText = connectedDeviceName?.let { "Connected to $it" } ?: "Phone Connected"
             }
+
             uiState == CarKitUiState.LISTENING_FOR_CONNECTIONS -> {
                 btIcon = Icons.Filled.Hearing // Or BluetoothSearching
                 btStatusText = "Listening for connections"
             }
+
             uiState == CarKitUiState.PHONE_CONNECTING -> {
-                btIcon = Icons.Filled.BluetoothSearching
+                btIcon = Icons.AutoMirrored.Filled.BluetoothSearching
                 btStatusText = "Phone connecting..."
             }
+
             else -> { // Default: Bluetooth enabled, permissions granted, but not connected/listening (e.g., service stopped, loading)
                 btIcon = Icons.Filled.Bluetooth
                 btStatusText = "Bluetooth Enabled"
@@ -450,7 +475,11 @@ fun CarKitStatusScreen(
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(imageVector = btIcon, contentDescription = "Bluetooth Status", modifier = Modifier.size(40.dp))
+            Icon(
+                imageVector = btIcon,
+                contentDescription = "Bluetooth Status",
+                modifier = Modifier.size(40.dp)
+            )
             Spacer(modifier = Modifier.width(8.dp))
             Text(btStatusText, style = MaterialTheme.typography.titleMedium)
         }
@@ -474,7 +503,10 @@ fun CarKitStatusScreen(
         // Service Control Buttons
         if (isBluetoothEnabled && hasBluetoothPermissions) {
             if (isServiceConsideredRunning) {
-                Button(onClick = onStopService, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                Button(
+                    onClick = onStopService,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
                     Text("Stop HFP Service")
                 }
             } else {
@@ -488,16 +520,26 @@ fun CarKitStatusScreen(
 
         // Call Status and Controls
         if (uiState == CarKitUiState.CALL_INCOMING) {
-            Text("Incoming Call: ${incomingCallNumber ?: "Unknown"}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+            Text(
+                "Incoming Call: ${incomingCallNumber ?: "Unknown"}",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Row {
-                Button(onClick = onAnswerCall, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                Button(
+                    onClick = onAnswerCall,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
                     Icon(Icons.Filled.Call, contentDescription = "Answer")
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                     Text("Answer")
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = onHangUpCall, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                Button(
+                    onClick = onHangUpCall,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
                     Icon(Icons.Filled.CallEnd, contentDescription = "Reject")
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                     Text("Reject")
@@ -505,9 +547,15 @@ fun CarKitStatusScreen(
             }
             Spacer(modifier = Modifier.height(16.dp))
         } else if (uiState == CarKitUiState.CALL_IN_PROGRESS) {
-            Text("Call in Progress with ${connectedDeviceName ?: "Device"}", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Call in Progress with ${connectedDeviceName ?: "Device"}",
+                style = MaterialTheme.typography.headlineSmall
+            )
             Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = onHangUpCall, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+            Button(
+                onClick = onHangUpCall,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
                 Icon(Icons.Filled.CallEnd, contentDescription = "Hang Up")
                 Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                 Text("Hang Up")
@@ -520,11 +568,23 @@ fun CarKitStatusScreen(
             Spacer(modifier = Modifier.height(16.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Service Error:", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onErrorContainer)
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Text(
+                        "Service Error:",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = onClearError,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onError, contentColor = MaterialTheme.colorScheme.errorContainer)
+                    Button(
+                        onClick = onClearError,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.onError,
+                            contentColor = MaterialTheme.colorScheme.errorContainer
+                        )
                     ) {
                         Text("Dismiss")
                     }
