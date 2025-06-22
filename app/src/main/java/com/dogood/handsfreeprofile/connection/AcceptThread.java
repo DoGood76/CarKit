@@ -9,6 +9,18 @@ import com.dogood.handsfreeprofile.util.BluetoothUtils;
 
 import java.io.IOException;
 
+/**
+ * A thread that listens for incoming Bluetooth connections.
+ * <p>
+ * This thread uses a {@link BluetoothServerSocket} to accept incoming connection requests.
+ * When a connection is accepted, it notifies the {@link AcceptThreadCallback} with the established
+ * {@link BluetoothSocket}.
+ * </p>
+ * <p>
+ * The thread continues to listen for connections until {@link #cancel()} is called or an
+ * unrecoverable error occurs.
+ * </p>
+ */
 public class AcceptThread implements Runnable {
     private static final String TAG = "AcceptThread";
     private final BluetoothServerSocket mmServerSocket;

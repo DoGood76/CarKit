@@ -12,6 +12,15 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 
+/**
+ * Manages an established Bluetooth connection with a remote device.
+ * This thread handles reading incoming AT commands and sending outgoing AT commands
+ * over the Bluetooth socket. It uses a callback interface to notify about received
+ * commands and connection closure.
+ *
+ * This class implements {@link Runnable} and is intended to be executed in a separate thread
+ * to avoid blocking the main UI thread.
+ */
 public class ConnectedClientThread implements Runnable {
     private static final String TAG = "ConnectedClientThread";
     public final BluetoothSocket mmSocket; // Changed to public
