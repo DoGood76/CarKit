@@ -1,67 +1,113 @@
 # CarKit Agent for Android
 
 ## Project Goals Overview
-This project simulates a Bluetooth **Hands-Free Profile (HFP) Audio Gateway** (AG) service on an Android device, allowing it to behave like a car kit. It also includes partial support for **PBAP (Phone Book Access Profile)** for accessing contacts over Bluetooth.
-The goal is to provide a way to test and reverse engineer HFP interactions, especially for Android Auto compatibility for non-rooted devices.
+This project simulates a Bluetooth **Hands-Free Profile (HFP) Audio Gateway** (AG) service on an Android device, allowing it to behave like a car kit. It also includes partial support for **PBAP (Phone Book Access Profile)** for accessing contacts over Bluetooth. The goal is to provide a way to test and reverse engineer HFP interactions, especially for Android Auto compatibility and interactions with non-rooted devices.
 
-## Key Features
+## Required Features
 - **HFP Server**: Accepts connections from HFP clients (e.g., phones).
 - **Phone Number Parsing**: Emulates phone number parsing and ringing status.
 - **Answer/Reject Calls**: Simulates call answering and rejection.
 - **Get Contact List**: Implements a basic PBAP client to retrieve contacts.
+- **NDK Integration**: Experimental support for native-level Bluetooth handling.
 
-## Backlog
-- Accepts HFP connections from another phone via RFCOMM.
-- Ability to recieve Parses and responds to common AT commands.
-- Parses AT commands (e.g., CLIP, ATA, CHUP) from the connected HFP client.
-- Offers volume control (`AT+VGS`) commands.
-- Native (NDK) support for low-level Bluetooth control.
-- Starts a PBAP listener to simulate contact sharing.
+## Approaches to HFP Implementation
+These are possible approaches for continuing work and experimentation:
 
-### 🔄 Android Auto Behavior
+### 1. Reflection-Based HFP Client (Hidden API)
+- **Description**: Uses reflection to access `BluetoothHeadsetClient`.
+- **Advantages**: Leverages built-in Android APIs; mirrors Android Automotive behavior.
+- **Disadvantages**:
+   - Fails if `profile_supported_hfpclient=false` (true on most phones).
+   - Requires hidden permissions (`BLUETOOTH_PRIVILEGED`, `MODIFY_PHONE_STATE`).
+   - Not usable unless app is a system app or has Knox/MDM privileges.
+
+### 2. Emulated Car Kit Server with AT Commands
+- **Description**: Uses `BluetoothAdapter.listenUsingRfcommWithServiceRecord()` to simulate car kit behavior.
+   - Listens for incoming HFP connections and handles AT command parsing manually (e.g., `AT+BRSF`, `AT+CLIP`, `ATA`).
+- **Advantages**: Full control over protocol parsing; useful for learning/testing.
+- **Disadvantages**:
+   - Does not work reliably between two **non-rooted phones**.
+   - Android client phone often ignores incoming RFCOMM requests without valid SDP and CoD.
+   - No SCO audio channel.
+   - SDP record generated via Java API is not sufficient for full HFP negotiation.
+
+### 3. Samsung Knox or OEM Customization
+- **Description**: Uses Knox’s `BluetoothPolicy` API (with enterprise key).
+- **Advantages**:
+   - Can restrict profile UUIDs and simulate HFP-only pairing scenarios.
+   - May allow usage of advanced call control permissions.
+- **Disadvantages**:
+   - Requires Samsung Knox license and enterprise key.
+   - Limited to Samsung devices; may not be portable.
+
+### 4. Using Samsung's "Call & Text on Other Devices"
+- **Description**: Proprietary solution from Samsung for secondary device to receive calls.
+- **Advantages**:
+   - Achieves goal via Samsung account; no HFP needed.
+- **Disadvantages**:
+   - Works only with Samsung ecosystem.
+   - Not based on standard Bluetooth HFP; not compatible with non-Samsung phones.
+
+### 5. Native Code / Custom Stack Approach
+- **Description**: Implements AT command parsing and SDP handling via NDK.
+- **Advantages**:
+   - Full control over protocol behavior.
+   - Allows low-level experimentation with socket-based Bluetooth.
+- **Disadvantages**:
+   - Cannot gain SCO audio access without root/system support.
+   - Requires advanced development and debugging.
+   - HCI access to Bluetooth chip not possible without elevated privileges.
+
+---
+
+## Android Auto Behavior
 Android Auto works because it:
 - Is a **system app**, signed by the platform key.
 - Uses fully registered **HFP + PBAP + MAP** profiles.
-- Can set `enable_phone_policy` to `false` to control calls manually.
-- Has access to trusted Bluetooth stack privileges and full SDP.
+- Can set `enable_phone_policy = false` to control calls manually.
+- Has access to Bluetooth stack internals and full privileges.
 
-### 🛠 Attempts on Non-Rooted Devices
-- **Tried pairing with HFP UUID** — connects but does not trigger HFP flow.
-- **Used correct UUID (`0000111f-0000-1000-8000-00805f9b34fb`)** — not trigger HFP flow.
-
-## Link to AOSP Android Automotive Reference
-https://source.android.com/docs/automotive/ivi_connectivity
-
+## Attempts on Non-Rooted Devices
+- **Paired with correct HFP UUID (`0000111f-0000-1000-8000-00805f9b34fb`)** – pairing succeeds but HFP commands rejected.
+- **Reflection against `BluetoothHeadsetClient`** – fails if `profile_supported_hfpclient=false`.
+- **PBAP OBEX attempts** – incomplete access to vCard records without proper OBEX implementation.
+- **SDP + CoD spoofing** – blocked due to permission limits.
 
 ## Limitations and Known Issues
 
-### ✅ Successes:
-- RFCOMM HFP server established.
+### ❌ Limitations (Android Constraints)
+1. **`enable_phone_policy` Flag**:
+   - Required for system to treat device as a car kit.
+   - Hidden inside `BluetoothHeadsetService`, cannot be modified on non-rooted phones.
 
-### ❌ Limitations (Android Constraints):
-1. **`enable_phone_policy` Flag usage**:
-    - **Prevents Android from treating the agent as a car kit.**
-    - Hidden inside `BluetoothHeadsetService` and can't be toggled on non-rooted devices.
-    - Android will not send call state updates or audio routing control to an app that doesn’t match a full SDP car kit profile.
+2. **Bluetooth Class of Device (CoD)**:
+   - Cannot be changed without root or OEM customization.
+   - Agent may not be seen as a car kit due to default CoD.
 
-2. **Cannot change Bluetooth Class of Device (CoD)**:
-    - Android apps cannot spoof CoD to make themselves appear as car kits unless rooted.
+3. **SDP Limitations**:
+   - Java API only registers basic SDP info.
+   - Full SDP record for HFP is not possible without native support.
 
-3. **SDP Record Incomplete**:
-    - Java Bluetooth API generates a basic SDP record — not sufficient to fully pass HFP car kit validation.
+4. **PBAP Access**:
+   - Client role restricted unless app is a system app.
+   - Only socket-level testing possible.
 
-4. **Contact Access (PBAP)**:
-    - Android does **not allow PBAP client access** unless you're a system app or the phone explicitly trusts the agent.
-    - PBAP support in this repo is limited to socket-level interaction (no formal OBEX path headers).
+5. **SCO Audio Channel**:
+   - Audio routing not available to user-space apps.
+   - Calls answered via AT commands will still use client audio hardware.
 
-5. **No Audio Routing**:
-    - Audio remains on the client and is not transferred to the agent.
-    - Agent cannot initiate real call audio or take full control.
-
----
-
-**Status:** Experimental. Use for learning, reverse engineering, or internal testing only.
+6. **Permissions Required**:
+   - `BLUETOOTH_PRIVILEGED` and `MODIFY_PHONE_STATE` required for deeper integration.
+   - Cannot be granted via ADB without system signature.
 
 ---
 
-For Bluetooth HFP specification: [Bluetooth SIG HFP 1.7](https://www.bluetooth.org/docman/handlers/downloaddoc.ashx?doc_id=245447)
+## AOSP and Reference Documentation
+- Android Automotive Bluetooth Connectivity: https://source.android.com/docs/automotive/ivi_connectivity
+- Samsung Knox BluetoothPolicy: https://docs.samsungknox.com
+- HFP 1.7 Specification: [Bluetooth SIG](https://www.bluetooth.org/docman/handlers/downloaddoc.ashx?doc_id=245447)
+
+## Status
+**Experimental** – for reverse engineering, learning, and internal testing. Not intended for production use.
+
+---
