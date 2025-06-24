@@ -8,8 +8,6 @@ This project simulates a Bluetooth **Hands-Free Profile (HFP) Audio Gateway** (A
 - **Phone Number Parsing**: Emulates phone number parsing and ringing status.
 - **Answer/Reject Calls**: Simulates call answering and rejection.
 - **Get Contact List**: Implements a basic PBAP client to retrieve contacts.
-- **NDK Integration**: Experimental support for native-level Bluetooth handling.
-
 
 ## Glossary
 
