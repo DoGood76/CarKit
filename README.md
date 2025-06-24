@@ -68,10 +68,7 @@ Android Auto works because it:
 - Has access to Bluetooth stack internals and full privileges.
 
 ## Attempts on Non-Rooted Devices
-- **Paired with correct HFP UUID (`0000111f-0000-1000-8000-00805f9b34fb`)** – pairing succeeds but HFP commands rejected.
-- **Reflection against `BluetoothHeadsetClient`** – fails if `profile_supported_hfpclient=false`.
-- **PBAP OBEX attempts** – incomplete access to vCard records without proper OBEX implementation.
-- **SDP + CoD spoofing** – blocked due to permission limits.
+- **Paired with correct HFP UUID (`0000111f-0000-1000-8000-00805f9b34fb`)** – pairing succeeds but HFP not advertised.
 
 ## Limitations and Known Issues
 
