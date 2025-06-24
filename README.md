@@ -17,7 +17,7 @@ These are possible approaches for continuing work and experimentation:
 - **Description**: Uses reflection to access `BluetoothHeadsetClient`.
 - **Advantages**: Leverages built-in Android APIs; mirrors Android Automotive behavior.
 - **Disadvantages**:
-   - Fails if `profile_supported_hfpclient=false` (true on most phones).
+   - Fails if `profile_supported_hfpclient=false`.
    - Requires hidden permissions (`BLUETOOTH_PRIVILEGED`, `MODIFY_PHONE_STATE`).
    - Not usable unless app is a system app or has Knox/MDM privileges.
 
@@ -27,7 +27,7 @@ These are possible approaches for continuing work and experimentation:
 - **Advantages**: Full control over protocol parsing; useful for learning/testing.
 - **Disadvantages**:
    - Does not work reliably between two **non-rooted phones**.
-   - Android client phone often ignores incoming RFCOMM requests without valid SDP and CoD.
+   - Android client phone often ignores incoming RFCOMM requests without valid SDP((Service Discovery Protocol) and CoD(class of device).
    - No SCO audio channel.
    - SDP record generated via Java API is not sufficient for full HFP negotiation.
 
